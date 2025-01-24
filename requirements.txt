@@ -1,0 +1,5 @@
+pathlib>=1.0.1
+langchain-community>=0.0.200
+langchain-openai>=0.0.200
+requests
+python-dotenv>=0.19.0
