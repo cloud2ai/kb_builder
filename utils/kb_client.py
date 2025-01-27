@@ -132,17 +132,22 @@ class KBClient:
         logger.debug(f"Knowledge base '{name}' does not exist.")
         return None
 
-    def create_or_update_document(self, document_name: str, text: str,
-                                   indexing_technique: str = DOC_DEFAULT_INDEXING_TECHNIQUE,
-                                   doc_form: str = DOC_DEFAULT_FORM,
-                                   doc_language: str = DOC_DEFAULT_LANGUAGE,
-                                   process_rule: dict = DOC_PROCESS_RULE):
+    def create_or_update_document(
+            self,
+            document_name: str,
+            text: str,
+            indexing_technique: str = DOC_DEFAULT_INDEXING_TECHNIQUE,
+            doc_form: str = DOC_DEFAULT_FORM,
+            doc_language: str = DOC_DEFAULT_LANGUAGE,
+            process_rule: dict = DOC_PROCESS_RULE
+    ):
         """Create or update a document in the knowledge base using text.
 
         Args:
             document_name: Name of the document
             text: Content of the document
-            indexing_technique: Technique used for indexing, defaults to DOC_DEFAULT_INDEXING_TECHNIQUE
+            indexing_technique: Technique used for indexing, defaults to 
+                DOC_DEFAULT_INDEXING_TECHNIQUE
             doc_form: Form of the document, defaults to DOC_DEFAULT_FORM
             doc_language: Language of the document, defaults to DOC_DEFAULT_LANGUAGE
             process_rule: Custom processing rules, defaults to None
@@ -152,7 +157,10 @@ class KBClient:
         # Search for existing document
         response = self.client.list_documents(keyword=document_name)
         existing_docs = response.json().get('data', [])
-        existing_doc = next((doc for doc in existing_docs if doc['name'] == document_name), None)
+        existing_doc = next(
+            (doc for doc in existing_docs if doc['name'] == document_name),
+            None
+        )
 
         # Prepare extra parameters
         extra_params = {
