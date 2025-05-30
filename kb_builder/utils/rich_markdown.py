@@ -38,19 +38,40 @@ Instructions:
 """
 
 SUMMARY_PROMPT = """
-You are a professional technical writer. Your task is to create concise
-and informative summaries that capture the key points and main ideas of
-the content. The summaries should be:
-
-1. Clear and easy to understand
-2. Focus on the most important information
-3. Maintain technical accuracy
-4. Be suitable for RAG (Retrieval-Augmented Generation) systems
-5. Keep the original meaning and context
-
-Provide the summary in a single paragraph without any additional
-explanations or formatting.
+You are a professional technical writer.
+Generate a concise, single-paragraph summary (max 200 characters) of a
+product technical document.
+Requirements:
+- Preserve original meaning and technical context.
+- Use key terms and phrases from the source text.
+- Focus on core functionality, architecture, or usage details.
+- Ensure technical accuracy and clarity.
+- Optimize for RAG (Retrieval-Augmented Generation) systems.
+Do not add explanations or formatting. Return only the summary.
 """
+
+SUMMARY_QA_PROMPT = """
+You are a professional technical writer.
+
+Your task: Generate 10 insightful and relevant questions based on
+the given technical document or paragraph.
+
+Requirements:
+- Questions must accurately reflect the content, context, and key
+  concepts.
+- Use terminology and phrasing from the original text whenever
+  possible.
+- Cover different aspects such as functionality, purpose, usage,
+  limitations, architecture, etc.
+- Ensure questions are clearly and precisely worded.
+- Questions should be suitable for use in RAG (Retrieval-Augmented
+  Generation), FAQs, or knowledge base indexing.
+
+Instructions:
+- Return only 10 questions, one per line.
+- Do not include any additional formatting or explanation.
+"""
+
 
 
 @dataclass
@@ -119,9 +140,7 @@ class RichMarkdown:
         section_summaries = []
         for section in self.sections:
             summary = self._summarize_text(
-                section['content'],
-                f"Summarize the following content from section "
-                f"'{section['title']}':"
+                section['content']
             )
             section['summary'] = summary
             section_summaries.append(
@@ -131,15 +150,17 @@ class RichMarkdown:
         # Generate background summary if exists
         if self.background.strip():
             background_summary = self._summarize_text(
-                self.background,
-                "Summarize the following background content:"
+                self.background
             )
             section_summaries.insert(0, f"Background: {background_summary}")
 
         # Generate document summary
         if section_summaries:
             combined_summaries = "\n".join(section_summaries)
-            self.document_summary = self._summarize_text(combined_summaries)
+            self.document_summary = self._summarize_text(
+                combined_summaries,
+                prompt=SUMMARY_PROMPT
+            )
 
     def _summarize_text(
         self,
@@ -159,7 +180,7 @@ class RichMarkdown:
         messages = [
             {
                 "role": "system",
-                "content": prompt if prompt else SUMMARY_PROMPT
+                "content": prompt if prompt else SUMMARY_QA_PROMPT
             },
             {
                 "role": "user",
@@ -697,10 +718,11 @@ class MarkdownProcessor:
         metadata_path = Path(converted_save_path) / metadata_filename
 
         merged_contents = []
-        # Add title and background content
-        top_content = f"{rich_markdown.title}\n"
-        top_content += rich_markdown.background
-        merged_contents.append(self._remove_empty_lines(top_content))
+
+        # Build top content before second level headings
+        if rich_markdown.background:
+            top_content = f"Background: {rich_markdown.background}"
+            merged_contents.append(self._remove_empty_lines(top_content))
 
         # Add sections with their titles
         for i in range(rich_markdown.get_section_count()):
@@ -714,10 +736,14 @@ class MarkdownProcessor:
             logger.debug(
                 f"Summary for section {section_title}: {summary}"
             )
-            merged_content = f"{section_title}\n"
+            # FIXME(Ray): I removed title from the generate paragraph to
+            # optimize fro RAG querying
+            # merged_content = f"{section_title}\n"
+            merged_content = ""
+
             # Add summary into final content if available
             if summary:
-                merged_content += f"{summary}\n"
+                merged_content += f"Summary for {section_title}: {summary}\n"
             merged_content += f"{section_content}\n"
 
             merged_contents.append(
