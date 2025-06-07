@@ -35,6 +35,73 @@ The following command line arguments are available:
 - Ensure that the API key is set in your environment variables to enable uploading to the knowledge base.
 - The tool supports multiple languages and will create language-specific knowledge bases when uploading.
 
+## Usage Guidelines and Restrictions
+
+### Permitted Uses
+1. Personal and commercial use of the tool
+2. Modification and distribution of the tool
+3. Integration with other systems
+4. Creation of derivative works
+
+### Restrictions
+1. **Attribution Requirement**: You must include the original copyright notice and license in any copy or substantial portion of the software.
+2. **API Usage**: When using this tool, you must comply with the terms of service of the underlying APIs (Azure OpenAI and Dify).
+3. **Commercial Use**: While commercial use is permitted, you must:
+   - Not claim ownership of the original software
+   - Not use the OneProCloud name or branding without explicit permission
+   - Not redistribute the software under a different license
+4. **Modifications**: If you modify the software, you must:
+   - Clearly indicate the changes made
+   - Include the original copyright notice
+   - Document any significant changes
+
+### Best Practices
+1. Keep your API keys secure and never commit them to version control
+2. Regularly update the tool to get the latest features and security fixes
+3. Report any bugs or issues through the issue tracker
+4. Consider contributing improvements back to the project
+
+## Contributing
+
+We welcome contributions to this project! Please read the following guidelines before contributing.
+
+### Contributor License Agreement (CLA)
+
+By contributing to this project, you agree to the following terms:
+
+1. **Copyright License**: You grant OneProCloud a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense, and distribute your contributions.
+
+2. **Patent License**: You grant OneProCloud a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer your contributions.
+
+3. **Representations**: You represent that:
+   - You are legally entitled to grant the above licenses
+   - Your contributions are your original work
+   - Your contributions do not violate any third party's rights
+   - Your contributions do not contain any malicious code
+
+### How to Contribute
+
+1. Fork the repository
+2. Create a new branch for your feature or bug fix
+3. Make your changes
+4. Write or update tests as needed
+5. Update documentation
+6. Submit a pull request
+
+### Code Style and Quality
+
+1. Follow PEP 8 style guide for Python code
+2. Write clear, descriptive commit messages
+3. Include tests for new features
+4. Update documentation for any changes
+5. Ensure all tests pass before submitting
+
+### Pull Request Process
+
+1. Update the README.md with details of changes if needed
+2. Update the documentation with any new features or changes
+3. The PR will be merged once it has been reviewed and approved
+
 ## Example Usage: Analyzing the VuePress Documentation without Uploading
 
 ```
@@ -66,3 +133,7 @@ This command will:
 3. Upload the converted markdown files to the appropriate knowledge base
 4. Clean up any outdated documents from the knowledge base
 5. Maintain a local cache to optimize future updates
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
