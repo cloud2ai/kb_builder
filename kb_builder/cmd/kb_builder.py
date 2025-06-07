@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 from kb_builder.utils.vuepress import SidebarParser
-from kb_builder.utils.rich_markdown import MarkdownProcessor
+from kb_builder.utils.rich_markdown import RichMarkdown
 from kb_builder.utils.kb_client import KBClient
 
 # Paths for the knowledge base to keep track of the source and converted
@@ -108,11 +108,23 @@ def process_markdown_files(
 
         logger.debug(f"Processing markdown file: {file_path}")
         # Read and process the markdown file
-        markdown_splitter = MarkdownProcessor(markdown_path=file_path)
+        #markdown_splitter = MarkdownProcessor(markdown_path=file_path)
         safe_filename = get_safe_filename(file_path, menu_name)
-        converted_path, metadata_path = markdown_splitter.generate_rich_markdown(
-            kb_path, kb_path, menu_name, safe_filename)
-        converted_markdown_paths.append((converted_path, metadata_path))
+        #converted_path, metadata_path = markdown_splitter.generate_rich_markdown(
+        #    kb_path, kb_path, menu_name, safe_filename)
+        #converted_markdown_paths.append((converted_path, metadata_path))
+        rich_markdown = RichMarkdown(
+            markdown_path=file_path,
+            converted_dir=kb_path,
+            converted_filename=safe_filename,
+            menu_name=menu_name
+        )
+        rich_markdown.generate_rich_markdown()
+        rich_markdown.save_rich_markdown()
+        converted_markdown_paths.append((
+            rich_markdown.rich_markdown_path,
+            rich_markdown.metadata_path
+        ))
 
     return converted_markdown_paths
 
