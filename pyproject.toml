@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "Knowledge Base Builder"
 requires-python = ">=3.8"
 dependencies = [
+    "markdown-it-py",
     "pathlib>=1.0.1",
     "requests",
     "python-dotenv>=0.19.0",

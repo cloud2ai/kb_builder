@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Any
 
 from devtoolbox.llm.azure_openai_provider import AzureOpenAIConfig
 from devtoolbox.llm.service import LLMService
+from markdown_it import MarkdownIt
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -38,30 +39,56 @@ Instructions:
 """
 
 SUMMARY_PROMPT = """
-You are a professional technical writer with knowledge of OneProCloud's
-HyperMotion and HyperBDR—cloud-native solutions for migration and disaster
-recovery. These solutions support agent-based and agentless modes, perform
-block-level differential replication, periodically synchronize data to
-cloud-native block and object storage, and enable one-click VM recovery via
-cloud orchestration on platforms like AWS, Google Cloud, Azure, and Huawei
-Cloud. The minimum RPO is 5 minutes, with support for up to 128 snapshots.
+You are a professional technical writer with deep expertise in OneProCloud's
+HyperMotion and HyperBDR—host-level cloud-native solutions for migration and
+disaster recovery (DR).
 
-Generate a concise summary (maximum 200 characters) of a product technical
-document. The summary must:
+These solutions support:
 
-Accurately preserve the original meaning and technical context
+* Production site: Includes physical servers, virtual machines, HCI,
+  public/private cloud, and host-level applications such as databases
+  (supporting rehost/lift-and-shift scenarios)
+* Agent-based mode: Supports Linux Agent and Windows Agent for
+  host-level data capture
+* Agentless mode: Supports VMware, OpenStack (Ceph), AWS,
+  Oracle Cloud, and Huawei FusionCompute
+* Data sync:
+  * Block-level differential replication
+  * Periodic synchronization to cloud-native block and object storage
+* Target site: Enables one-click VM recovery via cloud orchestration on
+  AWS, Google Cloud, Azure, Huawei Cloud, Tencent Cloud,
+  Alibaba Cloud, and others
+* Recovery objectives: Minimum RPO of 5 minutes, up to 128 snapshots
 
-Use key terms and phrases from the source text whenever possible
+---
 
-Focus on the core functionality, architecture, and usage details
+Task
 
-Be technically accurate, clear, and suitable for Retrieval-Augmented
-Generation (RAG)
+Generate a concise technical summary (max 200 characters) of a product document
+segment.
 
-Reflect the context of HyperMotion and HyperBDR whenever relevant
+The summary must:
 
-Return only the summary in a single paragraph, with no explanation or
-formatting.
+* Preserve the original technical meaning and context
+* Use relevant keywords from the source
+* Focus on functionality, architecture, or usage
+* Be clear, accurate, and RAG-ready
+* Reflect the context of HyperMotion and HyperBDR when applicable
+
+---
+
+Output Format
+
+Return a single line, with:
+
+Title: Summary
+
+Where:
+
+* Title: A concise, descriptive heading using technical keywords from
+  the content
+* Summary: A concise description, max 200 characters, with no
+  additional explanation, formatting, or line breaks
 """
 
 SUMMARY_QA_PROMPT = """
@@ -111,6 +138,7 @@ class RichMarkdown:
         self.menu_name = menu_name
         self.summary_level = summary_level
         self.converted_level = converted_level
+        self.md = MarkdownIt()
 
         if markdown_path:
             try:
@@ -291,248 +319,147 @@ class RichMarkdown:
             )
             return {}
 
-    def parse_sections(self):
+    def _create_section(self, title, level, path, is_root=False):
         """
-        Parse markdown content into a rich markdown structure.
+        Create a standardized section structure.
 
-        The document must have:
-        1. A single level 1 heading (#) as the document title
-        2. Optional level 2 headings (##) for sections
+        Each section contains:
+        - title: Section heading text
+        - content: List of content lines
+        - subsections: List of child sections
+        - level: Heading level (number of #)
+        - content_length: Length of content in this section
+        - branch_max_depth: Maximum depth in this section's branch
+        - index: The index of this section in its parent's subsections (starts from 1)
 
-        Content between level 1 heading and first level 2 heading
-        (or end of file) will be treated as background information.
-
-        The parsed structure includes:
-        - Section hierarchy with title, content, and subsections
-        - Content length statistics for each section and level
-        - Maximum depth information for each branch
-        - Document metadata including total sections and content length
+        Args:
+            title: Section title
+            level: Heading level (number of #)
+            path: Document path (only needed for root sections)
+            is_root: Whether this is a root section
 
         Returns:
-            dict: The root section with metadata
+            Dictionary containing complete section information
         """
-        logger.info(f"Starting markdown parsing for file: {self.markdown_path}")
-        logger.debug(f"Menu name: {self.menu_name}")
-
-        # Initialize parsing state
-        # Store all root sections
-        sections = []
-        # Track current section hierarchy for building the tree structure
-        section_stack = []
-        # Flag for code block state to avoid processing headings inside code
-        # blocks
-        in_code_block = False
-        # Track document structure metadata
-        metadata = {
-            'max_depth': 1,  # Maximum heading level in the document
-            'total_sections': 0,  # Total number of sections
-            'level_counts': {1: 0},  # Count of sections at each level
-            'level_content_lengths': {1: 0},  # Total content length per level
-            'total_content_length': 0  # Total content length of the document
+        section = {
+            'title': title,
+            'content': [],
+            'subsections': [],
+            'level': level,
+            'summary': "",
+            'converted_content': None,
+            'content_length': 0,  # Track content length for this section
+            'index': 1  # Initialize index to 1
         }
+        if is_root:
+            section['path'] = path
+        return section
 
-        logger.info("Starting markdown parsing with hierarchical structure")
-        logger.debug(f"Initial state: in_code_block={in_code_block}")
+    def parse_markdown(self) -> Dict:
+        """Parse markdown content into a structured tree
 
-        # Create standardized section structure
-        def create_section(title, level, path, is_root=False):
-            """
-            Create a standardized section structure.
+        Uses markdown-it to parse markdown text into a stream of tokens, where each
+        token represents an element in the document (headings, text, etc). Then
+        processes these tokens to build a section tree.
 
-            Each section contains:
-            - title: Section heading text
-            - content: List of content lines
-            - subsections: List of child sections
-            - level: Heading level (number of #)
-            - content_length: Length of content in this section
-            - branch_max_depth: Maximum depth in this section's branch
-            - index: The index of this section in its parent's subsections (starts from 1)
+        Parsing process:
+        1. markdown-it converts text into token stream
+        2. Each heading creates a new section node
+        3. Text between headings becomes section content
+        4. Uses stack to maintain section hierarchy
 
-            Args:
-                title: Section title
-                level: Heading level (number of #)
-                path: Document path (only needed for root sections)
-                is_root: Whether this is a root section
+        Returns:
+            Dict containing the parsed markdown structure with sections and content
+        """
+        # Parse markdown content into tokens
+        # Each token represents a specific element in the document
+        # Token types include: heading_open, inline, paragraph_open, etc.
+        tokens = self.md.parse(self.content)
 
-            Returns:
-                Dictionary containing complete section information
-            """
-            section = {
-                'title': title,
-                'content': [],
-                'subsections': [],
-                'level': level,
-                'summary': "",
-                'converted_content': None,
-                'content_length': 0,  # Track content length for this section
-                'branch_max_depth': level,  # Track max depth in this branch
-                'index': 1  # Initialize index to 1
-            }
-            if is_root:
-                section['path'] = path
-            return section
+        # Initialize variables for section tree construction
+        # Root section will be the first h1 heading
+        root_section = None
 
-        def update_branch_max_depth(section):
-            """Update max depth information for a section branch.
+        # Current section being processed
+        current_section = None
 
-            This function recursively traverses the section tree to:
-            1. Calculate the maximum depth in each branch
-            2. Update the branch_max_depth field for each section
-            3. Return the maximum depth found in the branch
+        # Stack to maintain section hierarchy
+        section_stack = []
 
-            Args:
-                section: The section to update
+        # Temporary storage for section content
+        current_content = []
 
-            Returns:
-                The maximum depth in this branch
-            """
-            max_depth = section['level']
-            if 'subsections' in section:
-                for subsection in section['subsections']:
-                    subsection_depth = update_branch_max_depth(subsection)
-                    max_depth = max(max_depth, subsection_depth)
-            section['branch_max_depth'] = max_depth
-            return max_depth
+        # Track section counts at each level
+        level_counts = {}
 
-        # Split content into lines for processing
-        lines = self.content.splitlines()
-        logger.debug(f"Total lines in document: {len(lines)}")
+        # Process each token in sequence
+        for i, token in enumerate(tokens):
+            # Handle heading tokens
+            # Each heading consists of two tokens:
+            # 1. heading_open: contains level information
+            # 2. inline: contains the heading text
+            if token.type == 'heading_open':
+                # Extract heading level from tag
+                level = int(token.tag[1])
 
-        # Skip frontmatter if exists (content between --- markers)
-        start_idx = 0
-        if lines and lines[0].strip() == '---':
-            logger.debug("Found frontmatter, skipping...")
-            for i, line in enumerate(lines[1:], 1):
-                if line.strip() == '---':
-                    start_idx = i + 1
-                    logger.debug(f"Frontmatter ends at line {start_idx}")
-                    break
+                # Get heading text from next token
+                heading_text = tokens[i + 1].content
 
-        # Process each line to build the section hierarchy
-        for line_num, line in enumerate(lines[start_idx:], start_idx):
-            # Skip empty lines
-            line = line.strip()
-            if not line:
-                continue
+                # Save accumulated content to previous section
+                if current_section and current_content:
+                    current_section['content'] = current_content
+                    current_content = []
 
-            # Skip table of contents marker
-            if line.strip() == "[[toc]]":
-                logger.debug(f"Found TOC marker at line {line_num}")
-                continue
+                # Update level count
+                level_counts[level] = level_counts.get(level, 0) + 1
 
-            # Handle code blocks to avoid processing headings inside them
-            if line.strip().startswith('```'):
-                in_code_block = not in_code_block
-                logger.debug(
-                    f"Code block {'started' if in_code_block else 'ended'} "
-                    f"at line {line_num}"
+                # Create new section for this heading
+                new_section = self._create_section(
+                    heading_text, level, self.markdown_path, False
                 )
-                # Add code block marker to content
-                if not section_stack:
-                    # Create root section if none exists
-                    if not sections:
-                        root_section = create_section(
-                            "Root", 0, self.markdown_path, True)
-                        sections.append(root_section)
-                        section_stack.append(root_section)
-                section_stack[-1]['content'].append(line)
-                section_stack[-1]['content_length'] += len(line)
-                metadata['total_content_length'] += len(line)
-                continue
+                new_section['index'] = level_counts[level]
 
-            # Process headings only outside code blocks
-            if not in_code_block and line.startswith('#'):
-                level = line.count('#')
-                heading_text = line[level:].strip()
-                logger.debug(
-                    f"Found heading at line {line_num}: "
-                    f"level {level}, text: {heading_text}"
-                )
-
-                # Update metadata
-                metadata['max_depth'] = max(metadata['max_depth'], level)
-                metadata['total_sections'] += 1
-                metadata['level_counts'][level] = (
-                    metadata['level_counts'].get(level, 0) + 1
-                )
-
-                # Create new section
-                is_root = not section_stack
-                new_section = create_section(
-                    heading_text, level, self.markdown_path, is_root
-                )
-
-                # Handle section hierarchy based on heading level
-                if not section_stack:
-                    # First section, add to root
-                    sections.append(new_section)
-                    section_stack.append(new_section)
+                # Handle first h1 as root section
+                if level == 1 and root_section is None:
+                    root_section = new_section
+                    current_section = root_section
+                    section_stack = [root_section]
                 else:
-                    current_level = section_stack[-1]['level']
-                    if level > current_level:
-                        # New section is a subsection of current section
-                        new_section['index'] = (
-                            len(section_stack[-1]['subsections']) + 1
-                        )
+                    # Find appropriate parent section
+                    # Pop sections until finding a parent with lower level
+                    while section_stack and section_stack[-1]['level'] >= level:
+                        section_stack.pop()
+
+                    if section_stack:
+                        # Add new section as child of parent
                         section_stack[-1]['subsections'].append(new_section)
                         section_stack.append(new_section)
-                    elif level == current_level:
-                        # New section is at same level as current section
-                        section_stack.pop()
-                        if section_stack:
-                            new_section['index'] = (
-                                len(section_stack[-1]['subsections']) + 1
-                            )
-                            section_stack[-1]['subsections'].append(new_section)
-                        else:
-                            new_section['index'] = len(sections) + 1
-                            sections.append(new_section)
-                    else:
-                        # New section is at higher level
-                        while (section_stack and
-                               section_stack[-1]['level'] >= level):
-                            section_stack.pop()
-                        if section_stack:
-                            new_section['index'] = (
-                                len(section_stack[-1]['subsections']) + 1
-                            )
-                            section_stack[-1]['subsections'].append(new_section)
-                        else:
-                            new_section['index'] = len(sections) + 1
-                            sections.append(new_section)
-                        section_stack.append(new_section)
-            else:
-                # Process non-heading content
-                if not section_stack:
-                    # Create root section if none exists
-                    if not sections:
-                        root_section = create_section(
-                            "Root", 0, self.markdown_path, True)
-                        sections.append(root_section)
-                        section_stack.append(root_section)
-                section_stack[-1]['content'].append(line)
-                section_stack[-1]['content_length'] += len(line)
-                metadata['total_content_length'] += len(line)
-                # Update level content length
-                current_level = section_stack[-1]['level']
-                metadata['level_content_lengths'][current_level] = (
-                    metadata['level_content_lengths'].get(current_level, 0) +
-                    len(line)
-                )
+                        current_section = new_section
 
-        # Get the root section
-        root_section = sections[0]
-        # Update branch max depth for all sections
-        update_branch_max_depth(root_section)
-        # Add metadata to root section
-        root_section['metadata'] = metadata
+            # Handle text content
+            # Skip heading text as it's already in section title
+            elif token.type == 'inline' and current_section:
+                if i > 0 and tokens[i-1].type == 'heading_open':
+                    continue
+                current_content.append(token.content)
 
-        # Save the parsed sections to metadata
+        # Save content for last section if any
+        if current_section and current_content:
+            current_section['content'] = current_content
+
+        # Create default root if no h1 found
+        if not root_section:
+            root_section = self._create_section(
+                "Root", 1, self.markdown_path, True
+            )
+            root_section['index'] = 1
+
+        # Save parsed structure to metadata
         self._save_to_metadata(root_section)
 
         logger.info(
             f"Successfully parsed document: {root_section['title']} "
-            f"(sections: {metadata['total_sections']})"
+            f"(sections: {len(root_section['subsections'])})"
         )
 
         return root_section
@@ -606,7 +533,9 @@ class RichMarkdown:
         # Add section title with proper heading level if requested
         if include_title and section['title'] != 'Root':
             heading = '#' * section['level']
-            content.append(f"{heading} [Order: {section['index']}] {section['title']}")
+            heading_text = f"{heading} [Order: {section['index']}] {section['title']}"
+            logger.info(f"Writing heading: {heading_text}")
+            content.append(heading_text)
 
         # Add section's own content
         if section['content']:
@@ -927,7 +856,7 @@ class RichMarkdown:
             f"{'#'*50}"
         )
 
-        sections = self.parse_sections()
+        sections = self.parse_markdown()
 
         # Start merging from root
         return self._merge_section(sections, self.metadata)
@@ -945,7 +874,7 @@ class RichMarkdown:
 
         # Add document title and summary for root level
         if section['level'] == 1:
-            contents.append(f"# {self.menu_name}")
+            contents.append(f"# [{self.menu_name}]{section['title']}")
             if section.get('summary'):
                 contents.append(f"Summary: {section['summary']}")
             contents.append("")
@@ -999,6 +928,7 @@ class RichMarkdown:
            - Section content (including subsections below min_level)
            - Section number (if applicable)
         """
+        logger.info(f"Saving rich markdown to {self.rich_markdown_path}")
         # Process all sections
         contents = self._process_section_for_rich_markdown(self.sections)
 
