@@ -62,6 +62,13 @@ These solutions support:
 
 ---
 
+Context:
+
+* Menu: {menu_name}
+* Document Title: {doc_title}
+
+---
+
 Task
 
 Generate a concise technical summary (max 200 characters) of a product document
@@ -74,6 +81,9 @@ The summary must:
 * Focus on functionality, architecture, or usage
 * Be clear, accurate, and RAG-ready
 * Reflect the context of HyperMotion and HyperBDR when applicable
+* **Include keywords or phrases derived from the Menu and Document Title
+  ("{menu_name}", "{doc_title}") in either the title or the summary to
+  improve retrieval accuracy**
 
 ---
 
@@ -85,10 +95,8 @@ Title: Summary
 
 Where:
 
-* Title: A concise, descriptive heading using technical keywords from
-  the content
-* Summary: A concise description, max 200 characters, with no
-  additional explanation, formatting, or line breaks
+* Title: A concise, descriptive heading using technical keywords from the content and including keywords from the Menu or Title where applicable
+* Summary: A concise description, max 200 characters, using relevant keywords and including menu/title references when possible; no explanation, formatting, or line breaks
 """
 
 SUMMARY_QA_PROMPT = """
@@ -214,7 +222,7 @@ class RichMarkdown:
         messages = [
             {
                 "role": "system",
-                "content": prompt if prompt else SUMMARY_PROMPT
+                "content": prompt if prompt else SUMMARY_QA_PROMPT
             },
             {
                 "role": "user",
@@ -532,8 +540,14 @@ class RichMarkdown:
 
         # Add section title with proper heading level if requested
         if include_title and section['title'] != 'Root':
-            heading = '#' * section['level']
-            heading_text = f"{heading} [Order: {section['index']}] {section['title']}"
+            document_title = f"[{self.menu_name} - {self.sections['title']}]"
+            level = section['level']
+            order_text = f"[Level: {level} Order: {section['index']}]"
+            heading_text = None
+            if level == 1:
+                heading_text = f"{order_text}{section['title']}"
+            else:
+                heading_text = f"{order_text}{document_title}{section['title']}"
             logger.info(f"Writing heading: {heading_text}")
             content.append(heading_text)
 
@@ -575,7 +589,7 @@ class RichMarkdown:
 
         return summaries
 
-    def _process_section_summaries(self, section, current_level):
+    def _process_section_summaries(self, section, current_level, prompt):
         """Process a section at the target level.
 
         Args:
@@ -603,7 +617,7 @@ class RichMarkdown:
 
             # Continue to handle lower level subsections
             self._process_section_summaries(
-                subsection, current_level + 1
+                subsection, current_level + 1, prompt
             )
 
         # Process summary based on level
@@ -613,7 +627,8 @@ class RichMarkdown:
             if content and not section.get('summary'):
                 content_text = '\n'.join(content)
                 summary_content = f"Title: {section['title']}\n{content_text}"
-                section['summary'] = self._summarize_text(summary_content)
+                section['summary'] = self._summarize_text(
+                    summary_content, prompt)
         elif current_level < self.summary_level:
             # Generate summary for parent level using children's summaries
             summaries = self._collect_section_summaries(
@@ -625,7 +640,8 @@ class RichMarkdown:
 
             if summaries and not section.get('summary'):
                 content_text = '\n'.join(summaries)
-                section['summary'] = self._summarize_text(content_text)
+                section['summary'] = self._summarize_text(
+                    content_text, prompt)
 
         return section
 
@@ -704,8 +720,14 @@ class RichMarkdown:
             f"{'#'*100}"
         )
 
+        # Create prompt for summary generation
+        document_title = self.sections['title']
+        prompt = SUMMARY_PROMPT.format(
+            menu_name=self.menu_name,
+            doc_title=document_title
+        )
         # Process the root section
-        self._process_section_summaries(self.sections, 1)
+        self._process_section_summaries(self.sections, 1, prompt)
         logger.info("Starting converted content generation")
         self._process_section_converted_content(self.sections, 1, None)
         logger.info("Converted content generation completed")
