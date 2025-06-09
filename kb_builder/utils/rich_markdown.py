@@ -449,7 +449,18 @@ class RichMarkdown:
             elif token.type == 'inline' and current_section:
                 if i > 0 and tokens[i-1].type == 'heading_open':
                     continue
-                current_content.append(token.content)
+                # Only add non-empty text content
+                if token.content.strip():
+                    current_content.append(token.content)
+            # Handle code blocks
+            elif token.type == 'fence' and current_section:
+                # Add the code block content
+                if token.content.strip():
+                    current_content.append(token.content)
+            elif token.type == 'code_block' and current_section:
+                # Add the code block content
+                if token.content.strip():
+                    current_content.append(token.content)
 
         # Save content for last section if any
         if current_section and current_content:
@@ -539,21 +550,26 @@ class RichMarkdown:
         content = []
 
         # Add section title with proper heading level if requested
+        heading_text = None
         if include_title and section['title'] != 'Root':
             document_title = f"[{self.menu_name} - {self.sections['title']}]"
             level = section['level']
-            order_text = f"[Level: {level} Order: {section['index']}]"
+            order_text = f"[Level-{level} Order-{section['index']}]"
+
             heading_text = None
             if level == 1:
                 heading_text = f"{order_text}{section['title']}"
             else:
                 heading_text = f"{order_text}{document_title}{section['title']}"
-            logger.info(f"Writing heading: {heading_text}")
-            content.append(heading_text)
 
-        # Add section's own content
-        if section['content']:
-            content.extend(section['content'])
+            logger.info(f"Writing heading: {heading_text}")
+
+        # To avoid single heading affect our RAG result, we need to add title
+        # with content in the same line.
+        current_content = "".join(section['content'])
+        if heading_text:
+            current_content = f"{heading_text}: {current_content}"
+        content.append(current_content)
 
         # Add content from subsections if recursive is True
         if recursive:
@@ -679,7 +695,7 @@ class RichMarkdown:
             content = self._collect_content(section, recursive=False)
             # For the second level we do not need to add summary
             content[0] = (
-                f"{content[0]}\nSummary: {section['summary']}"
+                f"{content[0]}[Summary]{section['summary']}"
             )
         elif current_level == self.converted_level:
             # For converted_level, process all content including parent
@@ -688,7 +704,7 @@ class RichMarkdown:
                 parent_section, recursive=False
             )
             parent_summary = (
-                f"{parent_content[0]}\nSummary: {parent_section['summary']}"
+                f"{parent_content[0]}[Summary]{parent_section['summary']}"
             )
             content.insert(0, parent_summary)
         else:
