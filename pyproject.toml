@@ -6,14 +6,18 @@ build-backend = "hatchling.build"
 name = "kb_builder"
 version = "0.2.0"
 description = "Knowledge Base Builder"
-requires-python = ">=3.8"
+authors = [
+    {name = "Ray Sun", email = "xiaoquqi@gmail.com"},
+]
 dependencies = [
+    "devtoolbox @ git+https://github.com/cloud2ai/devtoolbox.git",
     "markdown-it-py",
     "pathlib>=1.0.1",
     "requests",
     "python-dotenv>=0.19.0",
     "devtoolbox[llm]",
 ]
+requires-python = ">=3.8"
 
 [project.scripts]
 vuepress2dify = "kb_builder.cmd.vuepress2dify:main"
@@ -36,3 +40,6 @@ target-version = ["py38"]
 [tool.isort]
 profile = "black"
 multi_line_output = 3
+
+[tool.hatch.metadata]
+allow-direct-references = true
