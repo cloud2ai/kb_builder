@@ -10,12 +10,11 @@ authors = [
     {name = "Ray Sun", email = "xiaoquqi@gmail.com"},
 ]
 dependencies = [
-    "devtoolbox @ git+https://github.com/cloud2ai/devtoolbox.git",
+    "devtoolbox[llm] @ git+https://github.com/cloud2ai/devtoolbox.git@main",
     "markdown-it-py",
     "pathlib>=1.0.1",
     "requests",
     "python-dotenv>=0.19.0",
-    "devtoolbox[llm]",
 ]
 requires-python = ">=3.8"
 
