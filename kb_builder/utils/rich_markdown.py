@@ -138,7 +138,7 @@ class RichMarkdown:
         converted_filename: str,
         menu_name: str = None,
         summary_level: int = 2,
-        converted_level: int = 3
+        converted_level: int = 2
     ):
         self.markdown_path = markdown_path
         self.converted_dir = converted_dir
@@ -448,6 +448,9 @@ class RichMarkdown:
             # Skip heading text as it's already in section title
             elif token.type == 'inline' and current_section:
                 if i > 0 and tokens[i-1].type == 'heading_open':
+                    continue
+                # Skip [toc] content
+                if token.content.strip() == '[toc]':
                     continue
                 # Only add non-empty text content
                 if token.content.strip():

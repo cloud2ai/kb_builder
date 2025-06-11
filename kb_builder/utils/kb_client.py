@@ -100,9 +100,9 @@ class KBClient:
             parent_separator: str = "\n\n",
             parent_max_tokens: int = 4000,
             parent_chunk_overlap: int = 50,
-            parent_mode: str = "paragraph",
+            parent_mode: str = "full-doc",
             subchunk_separator: str = "\n",
-            subchunk_max_tokens: int = 800,
+            subchunk_max_tokens: int = 2000,
             subchunk_chunk_overlap: int = 0,
             metadata: dict = None
     ):
