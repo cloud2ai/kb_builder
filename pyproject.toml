@@ -15,11 +15,14 @@ dependencies = [
     "pathlib>=1.0.1",
     "requests",
     "python-dotenv>=0.19.0",
+    "pandas",
+    "openpyxl",
 ]
 requires-python = ">=3.8"
 
 [project.scripts]
 vuepress2dify = "kb_builder.cmd.vuepress2dify:main"
+excel2dify = "kb_builder.cmd.excel2dify:main"
 
 [project.optional-dependencies]
 dev = [

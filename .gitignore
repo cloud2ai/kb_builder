@@ -172,4 +172,10 @@ cython_debug/
 
 hyperbdr-docs*
 
-test.py
+.madasdftest.py
+
+# Ingore for excel handler
+*.xlsx
+*.txt
+*.metadata.json
+_metadata.json

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project is designed to analyze the online documentation at docs.oneprocloud.com and upload the results to the Dify knowledge base. The documentation is structured using VuePress.
+This project provides tools for converting various document formats into text suitable for Dify knowledge base import. It includes support for VuePress documentation and Excel files.
 
 ## Prerequisites
 
@@ -19,21 +19,396 @@ Before running the project, ensure that you have set the necessary environment v
 
 - **KB_API_KEY**: Required for uploading to the knowledge base. This is your API key for authentication.
 
-## Command Line Arguments
+## VuePress to Dify Knowledge Base Converter
 
-The following command line arguments are available:
+This tool analyzes VuePress documentation and converts it into text format for importing into Dify knowledge base, supporting multiple languages and automatic content summarization.
 
-- `--vuepress-path VUEPRESS_PATH`: This is a required argument that specifies the path to the VuePress documentation directory.
-- `--lang LANG`: Optional argument to specify which languages to process (e.g., "en" or "en,zh"). If not specified, all available languages will be processed.
-- `--kb-url KB_URL`: Optional argument. If provided, the tool will upload the analyzed content to the specified knowledge base URL.
-- `--kb-name KB_NAME`: Optional argument. It specifies the name of the knowledge base to which the content will be uploaded. This will be used as the prefix for language-specific knowledge bases (e.g., "docs_en" and "docs_zh").
-- `--debug`: Optional flag to enable debug mode with detailed logging.
+### Features
+
+- **Multi-Language Support**: Processes documentation in multiple languages (e.g., English, Chinese)
+- **Automatic Content Analysis**: Analyzes markdown files and generates structured content
+- **AI-Powered Summarization**: Uses large language models to generate content summaries
+- **Knowledge Base Upload**: Direct upload to Dify knowledge base with language-specific organization
+- **Cache Management**: Prevents duplicate processing and optimizes performance
+- **Debug Mode Support** for detailed logging
+
+### Usage
+
+#### Basic Usage (Analysis Only)
+
+```bash
+vuepress2dify --vuepress-path /path/to/vuepress/docs
+```
+
+#### Upload to Knowledge Base
+
+```bash
+vuepress2dify --vuepress-path /path/to/vuepress/docs --kb-url https://api.dify.ai/v1 --kb-name "docs" --lang "en,zh"
+```
+
+#### Specify Languages
+
+```bash
+# Process specific languages
+vuepress2dify --vuepress-path /path/to/vuepress/docs --lang "en,zh"
+
+# Process all available languages (default)
+vuepress2dify --vuepress-path /path/to/vuepress/docs
+```
+
+#### Enable Debug Mode
+
+```bash
+vuepress2dify --vuepress-path /path/to/vuepress/docs --debug
+```
+
+### Command Line Arguments
+
+- `--vuepress-path VUEPRESS_PATH`: Required. Path to the VuePress documentation directory
+- `--lang LANG`: Optional. Languages to process (e.g., "en" or "en,zh"). Default: all available languages
+- `--kb-url KB_URL`: Optional. Dify knowledge base API URL for uploading content
+- `--kb-name KB_NAME`: Optional. Knowledge base name prefix for language-specific bases
+- `--debug`: Optional. Enable debug mode with detailed logging
+- `--cache-stats`: Optional. Show cache statistics and exit
+- `--cache-details`: Optional. Show detailed cache information including original content
+- `--clear-cache`: Optional. Clear all cached summaries before processing
+- `--prompt`: Optional. Custom prompt for content summarization. This prompt will be used to guide the AI in generating summaries. If not provided, the default prompt will be used. Example: "You are a technical documentation expert. Please generate a concise summary for the following content, focusing on technical points and solutions."
+
+### Processing Details
+
+#### Content Analysis
+
+- Analyzes markdown files in VuePress documentation
+- Extracts content structure and metadata
+- Generates summaries for each document section
+- Maintains hierarchical organization
+
+#### Knowledge Base Organization
+
+- Creates language-specific knowledge bases (e.g., "docs_en", "docs_zh")
+- Uploads converted markdown files to appropriate knowledge base
+- Cleans up outdated documents automatically
+- Maintains content relationships and structure
+
+#### Cache Management
+
+The tool creates a `kb` directory at the same level as the `src` directory containing:
+- `.uploaded` files: Records of successfully uploaded documents
+- `.metadata.json` files: Document metadata including summaries and structure
+- `.txt` files: Cached content for comparison
+
+This ensures that unchanged documents are not re-uploaded, saving resources and time.
 
 ### Important Notes
 
-- If you do not specify `--kb-url` and `--kb-name`, the tool will only analyze the VuePress project without uploading any content to the knowledge base.
-- Ensure that the API key is set in your environment variables to enable uploading to the knowledge base.
-- The tool supports multiple languages and will create language-specific knowledge bases when uploading.
+1. VuePress documentation directory must exist and be accessible
+2. Markdown files are automatically detected and processed
+3. Language detection is based on file structure and naming conventions
+4. Knowledge base upload requires valid API credentials
+5. Cache is automatically cleaned up to remove outdated files
+6. Supports nested documentation structures
+
+### Error Handling
+
+- Displays error message if VuePress path doesn't exist
+- Shows detailed error for markdown parsing issues
+- API errors don't interrupt content analysis
+- Graceful handling of missing or corrupted files
+- Continues processing even if individual files fail
+
+## Excel to Dify Knowledge Base Converter
+
+This tool converts Excel files into text format for importing into Dify knowledge base, supporting both horizontal and vertical processing modes with AI-powered content summarization.
+
+### Quick Start
+
+```bash
+# Basic usage with default settings
+python kb_builder/cmd/excel2dify.py your_file.xlsx
+
+# With custom prompt for better summarization
+python kb_builder/cmd/excel2dify.py your_file.xlsx --prompt "You are a technical expert. Please summarize the following content focusing on key solutions."
+
+# Upload to Dify knowledge base
+python kb_builder/cmd/excel2dify.py your_file.xlsx --kb-url https://api.dify.ai/v1 --kb-name "excel_data"
+
+# Complete example with all features
+python kb_builder/cmd/excel2dify.py data.xlsx --mode horizontal --keep-fields "Problem,Solution" --prompt "You are a support specialist. Please summarize this troubleshooting content." --kb-url https://api.dify.ai/v1 --kb-name "support_data" --debug
+```
+
+### Features
+
+- **Horizontal Processing Mode**: First row as headers, each subsequent row becomes a complete paragraph
+- **Vertical Processing Mode**: Each column as a section containing all content from that column
+- **Multi-Sheet Support**: Each sheet is processed and saved as a separate file with naming format `original_filename-sheet_name.txt`
+- **Field Filtering**: Specify fields to keep in output while all fields participate in summarization
+- **AI Summarization**: Uses large language models to generate precise summaries for each paragraph, improving retrieval accuracy
+- **Custom Prompt Support**: Provide custom prompts for better context-aware summarization
+- **Automatic Text File Generation**
+- **Debug Mode Support** for detailed logging
+
+### Installation Dependencies
+
+```bash
+pip install pandas openpyxl
+```
+
+### Usage
+
+#### Basic Usage
+
+```bash
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx
+```
+
+#### Specify Processing Mode
+
+```bash
+# Horizontal processing mode (default)
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode horizontal
+
+# Vertical processing mode
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode vertical
+```
+
+#### Specify Fields to Keep
+
+```bash
+# Keep only specified fields in output, but all fields participate in summarization
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --keep-fields "Problem,Solution"
+```
+
+#### Specify Output File
+
+```bash
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --output custom_output.txt
+```
+
+#### Enable Debug Mode
+
+```bash
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --debug
+```
+
+#### Custom Prompt for Summarization
+
+```bash
+# Use custom prompt for better context-aware summarization
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --prompt "You are a technical documentation expert. Please generate a concise summary for the following content, focusing on technical points and solutions."
+```
+
+#### Complete Example
+
+```bash
+# Horizontal mode, keep problem and solution fields, custom prompt, enable debug
+python kb_builder/cmd/excel2dify.py printer.xlsx --mode horizontal --keep-fields "Problem,Solution" --prompt "You are a technical support expert. Please summarize the following troubleshooting content." --debug
+```
+
+### Processing Mode Details
+
+#### Horizontal Processing Mode
+
+- First row serves as header row
+- Each subsequent row becomes a complete paragraph
+- Format: Each header: content on separate lines, single newlines within paragraphs
+- Double newlines separate paragraphs
+- AI-generated summary added at the end of each paragraph
+
+**Example Excel:**
+```
+Name    Age     Profession
+John    25      Engineer
+Jane    30      Designer
+```
+
+**Output Text:**
+```
+## Name
+John
+Jane
+
+## Age
+25
+30
+
+## Profession
+Engineer
+Designer
+```
+
+#### Vertical Processing Mode
+
+- Each column represents a section
+- Column headers become section titles
+- All non-empty content from that column becomes section content
+
+**Example Excel:**
+```
+Name    Age     Profession
+John    25      Engineer
+Jane    30      Designer
+```
+
+**Output Text:**
+```
+## Name
+John
+Jane
+
+## Age
+25
+30
+
+## Profession
+Engineer
+Designer
+```
+
+### Field Filtering Functionality
+
+Use the `--keep-fields` parameter to specify which fields to retain in the output:
+
+- All fields participate in AI summarization generation
+- Only specified fields appear in the final text output
+- Field names separated by commas, e.g., `"问题,处理方式,解决方案"`
+
+This feature is particularly useful for:
+- Reducing output file size
+- Focusing on the most important information
+- Maintaining summary completeness (based on all fields)
+
+### AI Summarization Feature
+
+Each paragraph automatically generates a summary:
+
+- Uses Azure OpenAI GPT-4 model
+- Summary limited to 100 characters
+- Includes key terms and important information
+- Format: `[总结] summary content`
+- Follows paragraph content immediately for easy retrieval
+- Supports custom prompts for better context-aware summarization
+- Default prompt focuses on technical content analysis
+- Custom prompts can be tailored for specific domains or use cases
+
+### Cache Mechanism
+
+The tool implements an intelligent caching system to avoid redundant LLM API calls and improve processing efficiency:
+
+#### How It Works
+
+1. **Content Hashing**: Generates SHA256 hash for each content piece that needs summarization
+2. **Cache Key**: Uses `sheet_name_content_hash` as the cache key
+3. **Cache Loading**: Loads existing cache at start for potential hits during processing
+4. **Cache Overwrite**: Clears cache after processing to implement overwrite behavior for next run
+5. **Content Preservation**: Includes both original content and processed text for debugging
+
+#### Cache File
+
+- **Location**: `{excel_filename}_metadata.json` in the same directory as the Excel file
+- **Format**: JSON format containing summary results, content hashes, metadata, original content, and processed text for debugging
+
+#### Cache Structure Example
+
+For input file `printer_manual.xlsx`, cache file `printer_manual_metadata.json`:
+
+```json
+{
+  "Sheet1_a1b2c3d4e5f6...": {
+    "summary": "Printer troubleshooting guide",
+    "content_hash": "a1b2c3d4e5f6...",
+    "sheet_name": "Sheet1",
+    "original_content": "问题：打印机无法打印\n处理方式：检查连接线\n状态：已解决",
+    "processed_text": "问题：打印机无法打印\n处理方式：检查连接线\n[总结] Printer troubleshooting guide"
+  }
+}
+```
+
+#### Cache File Naming Examples
+
+- Input file: `printer_manual.xlsx` → Cache file: `printer_manual_metadata.json`
+- Input file: `data.xlsx` → Cache file: `data_metadata.json`
+- Input file: `report_2024.xlsx` → Cache file: `report_2024_metadata.json`
+
+#### Cache Management Commands
+
+```bash
+# Show cache statistics
+python kb_builder/cmd/excel2dify.py excel_file.xlsx --cache-stats
+
+# Show detailed cache information including original content
+python kb_builder/cmd/excel2dify.py excel_file.xlsx --cache-details
+
+# Clear all cache
+python kb_builder/cmd/excel2dify.py excel_file.xlsx --clear-cache
+
+# Debug mode (shows cache information)
+python kb_builder/cmd/excel2dify.py excel_file.xlsx --debug
+```
+
+#### Use Cases
+
+1. **Cache Hits During Processing**: Uses existing cache entries for unchanged content during the same processing run
+2. **Fresh Processing**: Each new run starts with clean cache, ensuring consistency
+3. **Content Tracking**: Both original Excel content and final processed text are preserved
+4. **Debug Support**: Complete processing history available for troubleshooting
+5. **Processing Analysis**: Analyze how Excel data is transformed into final text
+
+#### Performance Benefits
+
+- **Cache Hits**: Uses existing cache entries during processing for unchanged content
+- **Fresh Start**: Each new run starts with clean cache, ensuring consistency
+- **Content Preservation**: Both original and processed content available for analysis
+- **Storage Optimization**: Each cache entry ~500-1200 bytes (includes both original and processed content)
+- **Debug Support**: Complete processing history preserved for troubleshooting and verification
+
+### Multi-Sheet Processing
+
+- Automatically detects all sheets in Excel file
+- Each sheet processed and saved as independent file
+- File naming format: `original_filename-sheet_name.txt`
+- Supports Chinese sheet names (automatically converted to safe filenames)
+
+### Important Notes
+
+1. Excel file must exist and be readable
+2. Empty cells are automatically skipped
+3. Output files saved in same directory as Excel file by default
+4. Existing output files will be overwritten
+5. Supports Chinese content processing
+6. AI summarization requires Azure OpenAI API configuration
+7. If LLM service unavailable, summarization is skipped but content processing continues
+8. Cache file location: Same directory as Excel file, named `{excel_filename}_metadata.json`
+9. Cache behavior: Loads existing cache for hits during processing, clears after completion
+10. Content preservation: Both original Excel content and processed text are saved
+
+### Error Handling
+
+- Displays error message if file doesn't exist
+- Shows detailed error for Excel file format issues
+- Empty files generate empty txt files
+- LLM service errors don't interrupt overall processing
+- Processing errors for individual sheets don't affect other sheets
+
+### Performance Optimization
+
+- Supports caching mechanism to avoid duplicate processing
+- Intelligently skips empty sheets
+- Batch processes multiple sheets
+- Optional debug mode for troubleshooting
+
+### Command Line Arguments
+
+- `excel_path`: Required. Path to the Excel file to process
+- `--mode`: Optional. Processing mode ('horizontal' or 'vertical'). Default: horizontal
+- `--keep-fields`: Optional. Comma-separated list of field names to keep in output
+- `--output`: Optional. Output text file path (auto-generated if not provided)
+- `--kb-url`: Optional. Knowledge base API endpoint URL
+- `--kb-name`: Optional. Name of the knowledge base to create or update
+- `--debug`: Optional. Enable debug mode with detailed logging
+- `--cache-stats`: Optional. Show cache statistics and exit
+- `--cache-details`: Optional. Show detailed cache information including original content
+- `--clear-cache`: Optional. Clear all cached summaries before processing
+- `--prompt`: Optional. Custom prompt for content summarization. This prompt will be used to guide the AI in generating summaries. If not provided, the default prompt will be used. Example: "You are a technical documentation expert. Please generate a concise summary for the following content, focusing on technical points and solutions."
 
 ## Usage Guidelines and Restrictions
 
@@ -101,38 +476,6 @@ By contributing to this project, you agree to the following terms:
 1. Update the README.md with details of changes if needed
 2. Update the documentation with any new features or changes
 3. The PR will be merged once it has been reviewed and approved
-
-## Example Usage: Analyzing the VuePress Documentation without Uploading
-
-```
-vuepress2dify --vuepress-path /path/to/vuepress/docs
-```
-
-After running the script, a directory named `kb` will be created at the same level as the `src` directory. This directory will serve as a cache to record documents that have already been uploaded, preventing duplicate calls to the GPT model.
-
-### Cache Management
-
-The `kb` directory will contain language-specific subdirectories (e.g., `en`, `zh`). Each language directory contains:
-- `.uploaded` files: Records of successfully uploaded documents
-- `.metadata.json` files: Document metadata including summaries and structure
-- `.txt` files: Cached content for comparison
-
-The script ensures that if a document has already been uploaded and its content remains unchanged, it will not be uploaded again, thus saving resources and time. The cache is automatically cleaned up to remove files that are no longer part of the documentation.
-
-## Example Usage: Uploading to the Knowledge Base
-
-To upload the analyzed content to the knowledge base, you can use the following command:
-
-```
-vuepress2dify --vuepress-path /path/to/vuepress/docs --kb-url https://api.dify.ai/v1 --kb-name "docs" --lang "en,zh"
-```
-
-This command will:
-1. Analyze the VuePress documentation for English and Chinese content
-2. Create language-specific knowledge bases (e.g., "docs_en" and "docs_zh")
-3. Upload the converted markdown files to the appropriate knowledge base
-4. Clean up any outdated documents from the knowledge base
-5. Maintain a local cache to optimize future updates
 
 ## License
 
