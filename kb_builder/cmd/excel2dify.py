@@ -63,12 +63,13 @@ def parse_arguments():
     )
     parser.add_argument(
         '--mode',
-        choices=['horizontal', 'vertical'],
+        choices=['horizontal', 'vertical', 'sheet-horizontal', 'sheet-vertical'],
         default='horizontal',
         help=(
             'Processing mode: horizontal (first row as headers, each row as '
-            'paragraph) or vertical (each column as section). '
-            'Default: horizontal'
+            'paragraph), vertical (each column as section), sheet-horizontal '
+            '(row-wise description with background context), or sheet-vertical '
+            '(column-wise description with background context). Default: horizontal'
         )
     )
     parser.add_argument(
@@ -134,6 +135,16 @@ def parse_arguments():
             'following content, focusing on technical points and solutions."'
         )
     )
+    parser.add_argument(
+        '--background-info',
+        help=(
+            'Background information to provide context for analysis. '
+            'This is particularly useful for sheet-horizontal and sheet-vertical '
+            'modes to provide domain-specific context. Example: "This data '
+            'represents customer support tickets with technical issues and '
+            'their resolution status."'
+        )
+    )
 
     return parser.parse_args()
 
@@ -170,7 +181,7 @@ def main():
 
     try:
         # Initialize Excel processor
-        processor = ExcelProcessor(args.excel_path, args.keep_fields, args.prompt)
+        processor = ExcelProcessor(args.excel_path, args.keep_fields, args.prompt, args.background_info)
 
         # Handle cache statistics request
         if args.cache_stats:
@@ -179,7 +190,11 @@ def main():
             print(f"  Total entries: {stats.get('total_entries', 0)}")
             print(f"  Unique sheets: {stats.get('unique_sheets', 0)}")
             print(f"  Total summaries: {stats.get('total_summaries', 0)}")
+            print(f"  Sheet-horizontal entries: {stats.get('sheet_horizontal_entries', 0)}")
+            print(f"  Sheet-vertical entries: {stats.get('sheet_vertical_entries', 0)}")
+            print(f"  Traditional entries: {stats.get('traditional_entries', 0)}")
             print(f"  Cache file: {stats.get('cache_file', 'N/A')}")
+            print(f"  Cache type: {stats.get('cache_type', 'N/A')}")
             return 0
 
         # Handle cache details request
@@ -212,6 +227,7 @@ def main():
 
         # Save each sheet to separate text file
         saved_files = []
+        failed_sheets = []
         for sheet_name, content, output_path in results:
             if content.strip():  # Only save non-empty content
                 saved_path = processor.save_sheet_to_txt(content, output_path)
@@ -219,10 +235,24 @@ def main():
                 logger.info(f"Saved sheet '{sheet_name}' to: {saved_path}")
             else:
                 logger.warning(f"Skipping empty sheet: {sheet_name}")
+                if args.background_info:  # This is a sheet analysis mode
+                    failed_sheets.append(sheet_name)
 
-        logger.info(
-            f"Successfully converted {len(saved_files)} sheets to text files"
-        )
+        # Report results
+        if saved_files:
+            logger.info(
+                f"Successfully converted {len(saved_files)} sheets to text files"
+            )
+
+        if failed_sheets:
+            logger.error(
+                f"LLM analysis failed for {len(failed_sheets)} sheets: "
+                f"{', '.join(failed_sheets)}"
+            )
+            print(
+                f"Warning: LLM analysis failed for {len(failed_sheets)} sheets. "
+                f"No output files generated for these sheets."
+            )
 
         # Clear cache after processing to implement overwrite behavior
         processor._clear_cache_after_processing()
@@ -255,6 +285,9 @@ def main():
         print(f"Conversion completed! Generated {len(saved_files)} files:")
         for sheet_name, file_path in saved_files:
             print(f"  - {file_path}")
+
+        if failed_sheets:
+            print(f"\nNote: {len(failed_sheets)} sheets failed LLM analysis and were skipped.")
 
     except Exception as e:
         logger.exception(f"Error: {str(e)}")

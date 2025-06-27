@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 EXCEL_SUMMARY_PROMPT = """
 You are a professional technical content analyzer.
 
-Your task is to generate a concise summary (max 100 characters) for a piece of
+Your task is to generate a concise summary (max 300 characters) for a piece of
 technical content extracted from an Excel file. The summary should:
 
 - Capture the main topic or issue being addressed
@@ -37,6 +37,44 @@ technical content extracted from an Excel file. The summary should:
 - Use relevant terminology from the content
 
 Return only the summary text, without any additional formatting or explanation.
+"""
+
+SHEET_ANALYSIS_PROMPT = """
+Please analyze the Excel sheet according to these rules:
+
+- If background information is provided, use it as the main context to
+  understand the sheet's structure.
+- Otherwise, determine the structure by checking:
+  - If the first row has multiple distinct column headers and the other rows
+    have similar data, treat the sheet as horizontally organized (each row is
+    a data record).
+  - If the first column has multiple field names and the other columns have
+    related values, treat the sheet as vertically organized (each column is a
+    data entity).
+
+Based on the structure:
+- For horizontal structure: analyze the sheet row by row. For each row,
+  rewrite the data as a natural-language sentence that fully expresses its
+  meaning, using the headers and any background information if available.
+- For vertical structure: analyze the sheet column by column. For each
+  column, rewrite the data as a natural-language sentence that fully
+  expresses its meaning, using the field names and any background
+  information if available.
+
+The rewritten sentences must:
+- Preserve all meaningful information from the original data, without
+  omitting anything.
+- Use natural, fluent language suitable for downstream RAG (Retrieval-
+  Augmented Generation) tasks.
+- Be written in the original language detected in the Excel content (do not
+  translate or change the language).
+- Appear as one sentence per row or column, with one blank line between
+  each sentence.
+- Be returned as plain text only, with no markdown, no bullet points, and
+  no code formatting.
+- Do not include any explanations or extra text.
+
+Background information: {background_info}
 """
 
 
@@ -53,7 +91,7 @@ class ExcelProcessor:
     """
 
     def __init__(self, excel_path: str, keep_fields: Optional[str] = None,
-                 custom_prompt: Optional[str] = None):
+                 custom_prompt: Optional[str] = None, background_info: Optional[str] = None):
         """
         Initialize the Excel processor.
 
@@ -64,6 +102,8 @@ class ExcelProcessor:
                         specified fields will appear in the final text.
             custom_prompt: Custom prompt for content summarization. If not provided,
                           the default prompt will be used.
+            background_info: Background information to provide context for analysis.
+                           Used in sheet-horizontal and sheet-vertical modes.
         """
         self.excel_path = Path(excel_path)
         if not self.excel_path.exists():
@@ -84,15 +124,32 @@ class ExcelProcessor:
         else:
             logger.info("Using default prompt for summarization")
 
+        # Set background information
+        self.background_info = background_info
+        if background_info:
+            logger.info("Background information provided for analysis")
+
         logger.info(f"Initialized Excel processor for: {excel_path}")
 
         # Initialize LLM service for summarization
         self.llm_service = self._init_llm()
 
         # Initialize cache - load existing cache for potential hits during processing
-        cache_filename = f"{self.excel_path.stem}.metadata.json"
+        # For sheet-horizontal and sheet-vertical modes, use separate cache files
+        if background_info:
+            # Create a hash of background info for cache file naming
+            bg_hash = hashlib.sha256(
+                background_info.encode('utf-8')
+            ).hexdigest()[:8]
+            cache_filename = (
+                f"{self.excel_path.stem}_sheet_analysis_{bg_hash}.metadata.json"
+            )
+        else:
+            cache_filename = f"{self.excel_path.stem}.metadata.json"
+
         self.cache_file = self.excel_path.parent / cache_filename
-        self.cache = self._load_cache()  # Load existing cache for potential hits
+        # Load existing cache for potential hits
+        self.cache = self._load_cache()
 
     def _load_cache(self) -> Dict[str, Any]:
         """
@@ -161,19 +218,42 @@ class ExcelProcessor:
             total_entries = len(self.cache)
             unique_sheets = set()
             total_summaries = 0
+            sheet_horizontal_count = 0
+            sheet_vertical_count = 0
+            traditional_count = 0
 
-            for value in self.cache.values():
+            for key, value in self.cache.items():
                 sheet_name = value.get('sheet_name', '')
                 if sheet_name:
                     unique_sheets.add(sheet_name)
+
+                # Count different types of entries
+                mode = value.get('mode', '')
+                if mode == 'sheet_horizontal':
+                    sheet_horizontal_count += 1
+                elif mode == 'sheet_vertical':
+                    sheet_vertical_count += 1
+                else:
+                    traditional_count += 1
+
                 if value.get('summary'):
                     total_summaries += 1
+
+            # Determine cache type based on filename
+            cache_type = (
+                "sheet_analysis" if "sheet_analysis" in str(self.cache_file)
+                else "traditional"
+            )
 
             return {
                 'total_entries': total_entries,
                 'unique_sheets': len(unique_sheets),
                 'total_summaries': total_summaries,
-                'cache_file': str(self.cache_file)
+                'sheet_horizontal_entries': sheet_horizontal_count,
+                'sheet_vertical_entries': sheet_vertical_count,
+                'traditional_entries': traditional_count,
+                'cache_file': str(self.cache_file),
+                'cache_type': cache_type
             }
         except Exception as e:
             logger.error(f"Error getting cache stats: {str(e)}")
@@ -233,16 +313,17 @@ class ExcelProcessor:
     def _clear_cache_after_processing(self):
         """
         Clear cache after processing is complete to implement overwrite behavior.
-        This ensures that only current processing results are preserved.
         """
         try:
-            # Save current cache first
+            # Save current cache state
             self._save_cache()
             # Then clear it for next run
             self.cache.clear()
             logger.debug("Cache cleared after processing for overwrite behavior")
         except Exception as e:
-            logger.error(f"Error clearing cache after processing: {str(e)}")
+            logger.error(
+                f"Error clearing cache after processing: {str(e)}"
+            )
 
     def _init_llm(self) -> Optional[LLMService]:
         """
@@ -252,13 +333,14 @@ class ExcelProcessor:
             LLMService instance or None if initialization fails
         """
         try:
-            # Initialize LLM service with Azure OpenAI config
+            # Use larger max_tokens for sheet analysis modes
+            # GPT-4o-mini supports up to 80000 tokens
+            max_tokens = 10000
             openai_config = AzureOpenAIConfig(
                 temperature=0.1,
-                max_tokens=200
+                max_tokens=max_tokens
             )
-
-            logger.debug("LLM service initialized for summarization")
+            logger.debug(f"LLM service initialized with max_tokens={max_tokens}")
             return LLMService(openai_config)
         except Exception as e:
             logger.warning(f"Failed to initialize LLM service: {str(e)}")
@@ -400,8 +482,8 @@ class ExcelProcessor:
                 # Create output content (only keep fields)
                 output_parts = []
                 for header, value in zip(headers, row):
-                    if (pd.notna(value) and
-                        header in output_headers):  # Skip empty values and non-keep fields
+                    # Skip empty values and non-keep fields
+                    if (pd.notna(value) and header in output_headers):
                         value_str = str(value).strip()
                         if value_str:
                             output_parts.append(f"{header}：{value_str}")
@@ -428,8 +510,7 @@ class ExcelProcessor:
             # Join paragraphs with double newlines
             result = "\n\n".join(paragraphs)
             logger.info(
-                f"Generated {len(paragraphs)} paragraphs for sheet "
-                f"'{sheet_name}'"
+                f"Generated {len(paragraphs)} paragraphs for sheet '{sheet_name}'"
             )
 
             return result
@@ -481,33 +562,41 @@ class ExcelProcessor:
 
             sections = []
 
-            # Process each column as a section
+            # Process each column
             for header in output_headers:
                 section_parts = []
                 section_parts.append(f"## {header}")
 
                 # Get all non-empty values from this column
-                column_values = df[header].dropna()
-                for value in column_values:
-                    value_str = str(value).strip()
-                    if value_str:
-                        section_parts.append(value_str)
+                column_values = []
+                for index, row in df.iterrows():
+                    value = row[header]
+                    if pd.notna(value):  # Skip empty values
+                        value_str = str(value).strip()
+                        if value_str:
+                            column_values.append(value_str)
 
-                if len(section_parts) > 1:  # Has content beyond header
-                    section_content = "\n".join(section_parts)
-                    sections.append(section_content)
+                if column_values:
+                    section_parts.extend(column_values)
 
-                    # Store processed text in cache for vertical mode
+                    # Create section content for summarization
+                    section_content = "\n".join(column_values)
+                    summary = self._summarize_content(section_content, sheet_name)
+
+                    # Add summary if available
+                    if summary:
+                        section_parts.append(f"[总结] {summary}")
+
+                    sections.append("\n".join(section_parts))
+
+                    # Update processed text in cache
                     content_hash = self._get_content_hash(section_content)
                     cache_key = self._get_cache_key(sheet_name, content_hash)
-                    if cache_key not in self.cache:
-                        self.cache[cache_key] = {
-                            'summary': '',  # No summary for vertical mode
-                            'content_hash': content_hash,
-                            'sheet_name': sheet_name,
-                            'original_content': section_content,
-                            'processed_text': section_content
-                        }
+                    if cache_key in self.cache:
+                        # No summary for vertical mode
+                        self.cache[cache_key]['processed_text'] = "\n".join(
+                            section_parts
+                        )
                         self._save_cache()
 
             # Join sections with double newlines
@@ -522,12 +611,353 @@ class ExcelProcessor:
             logger.error(f"Error processing sheet '{sheet_name}': {str(e)}")
             raise
 
+    def _fallback_analysis_format(self, df, output_headers) -> str:
+        """
+        Fallback format when LLM analysis fails.
+
+        Args:
+            df: DataFrame containing the sheet data
+            output_headers: Headers to include in output
+
+        Returns:
+            Formatted text content
+        """
+        lines = []
+        for index, row in df.iterrows():
+            row_parts = []
+            for header, value in zip(df.columns, row):
+                if pd.notna(value) and header in output_headers:
+                    value_str = str(value).strip()
+                    if value_str:
+                        row_parts.append(f"{header}: {value_str}")
+            if row_parts:
+                lines.append(" | ".join(row_parts))
+
+        return "\n".join(lines)
+
+    def process_sheet_horizontal_analysis(self, sheet_name: str) -> str:
+        """
+        Process a single sheet in sheet-horizontal analysis mode.
+
+        In sheet-horizontal analysis mode:
+        - Analyzes the entire sheet with focus on row descriptions
+        - Provides background context for better understanding
+        - Generates one line per row with clear, descriptive text
+        - Emphasizes accurate description of each row's content
+        - Uses specialized prompt for horizontal (row-wise) description
+        - Background information enhances understanding of data context
+
+        Args:
+            sheet_name: Name of the sheet to process
+
+        Returns:
+            Formatted text content with comprehensive row analysis
+        """
+        logger.info(f"Processing sheet '{sheet_name}' in sheet-horizontal analysis mode")
+
+        try:
+            # Read specific sheet
+            df = pd.read_excel(self.excel_path, sheet_name=sheet_name)
+            logger.debug(
+                f"Sheet '{sheet_name}' loaded with {len(df)} rows and "
+                f"{len(df.columns)} columns"
+            )
+
+            if df.empty:
+                logger.warning(f"Sheet '{sheet_name}' is empty")
+                return ""
+
+            # Get headers from first row
+            headers = df.columns.tolist()
+            logger.debug(f"Headers for sheet '{sheet_name}': {headers}")
+
+            # Filter headers for output if keep_fields is specified
+            output_headers = headers
+            if self.keep_fields:
+                output_headers = [
+                    h for h in headers if h in self.keep_fields
+                ]
+                logger.info(f"Output headers (filtered): {output_headers}")
+
+            # Prepare content for LLM analysis
+            content_parts = []
+
+            # Add header information
+            content_parts.append(f"Sheet: {sheet_name}")
+            content_parts.append(f"Columns: {', '.join(output_headers)}")
+            content_parts.append("Data:")
+
+            # Add all data rows
+            for index, row in df.iterrows():
+                row_parts = []
+                for header, value in zip(headers, row):
+                    if pd.notna(value) and header in output_headers:
+                        value_str = str(value).strip()
+                        if value_str:
+                            row_parts.append(f"{header}: {value_str}")
+                if row_parts:
+                    content_parts.append(" | ".join(row_parts))
+
+            # Join all content for LLM analysis
+            full_content = "\n".join(content_parts)
+
+            # Generate analysis using LLM with horizontal focus
+            analysis = self._analyze_content_horizontal(full_content, sheet_name)
+
+            if analysis:
+                return analysis
+            else:
+                # For sheet analysis modes, don't use fallback if LLM fails
+                logger.error(
+                    "LLM analysis failed for sheet-horizontal mode. "
+                    "No output generated."
+                )
+                return ""
+
+        except Exception as e:
+            logger.error(f"Error processing sheet '{sheet_name}': {str(e)}")
+            raise
+
+    def process_sheet_vertical_analysis(self, sheet_name: str) -> str:
+        """
+        Process a single sheet in sheet-vertical analysis mode.
+
+        In sheet-vertical analysis mode:
+        - Analyzes the entire sheet with focus on row patterns and trends
+        - Provides background context for better analysis
+        - Generates one line per column or logical grouping
+        - Emphasizes patterns and trends within each column across rows
+
+        Args:
+            sheet_name: Name of the sheet to process
+
+        Returns:
+            Formatted text content with comprehensive column analysis
+        """
+        logger.info(f"Processing sheet '{sheet_name}' in sheet-vertical analysis mode")
+
+        try:
+            # Read specific sheet
+            df = pd.read_excel(self.excel_path, sheet_name=sheet_name)
+            logger.debug(
+                f"Sheet '{sheet_name}' loaded with {len(df)} rows and "
+                f"{len(df.columns)} columns"
+            )
+
+            if df.empty:
+                logger.warning(f"Sheet '{sheet_name}' is empty")
+                return ""
+
+            # Get headers from first row
+            headers = df.columns.tolist()
+            logger.debug(f"Headers for sheet '{sheet_name}': {headers}")
+
+            # Filter headers for output if keep_fields is specified
+            output_headers = headers
+            if self.keep_fields:
+                output_headers = [
+                    h for h in headers if h in self.keep_fields
+                ]
+                logger.info(f"Output headers (filtered): {output_headers}")
+
+            # Prepare content for LLM analysis
+            content_parts = []
+
+            # Add header information
+            content_parts.append(f"Sheet: {sheet_name}")
+            content_parts.append(f"Columns: {', '.join(output_headers)}")
+            content_parts.append("Data:")
+
+            # Add all data rows
+            for index, row in df.iterrows():
+                row_parts = []
+                for header, value in zip(headers, row):
+                    if pd.notna(value) and header in output_headers:
+                        value_str = str(value).strip()
+                        if value_str:
+                            row_parts.append(f"{header}: {value_str}")
+                if row_parts:
+                    content_parts.append(" | ".join(row_parts))
+
+            # Join all content for LLM analysis
+            full_content = "\n".join(content_parts)
+
+            # Generate analysis using LLM with vertical focus
+            analysis = self._analyze_content_vertical(full_content, sheet_name)
+
+            if analysis:
+                return analysis
+            else:
+                # For sheet analysis modes, don't use fallback if LLM fails
+                logger.error(
+                    "LLM analysis failed for sheet-vertical mode. "
+                    "No output generated."
+                )
+                return ""
+
+        except Exception as e:
+            logger.error(f"Error processing sheet '{sheet_name}': {str(e)}")
+            raise
+
+    def _analyze_content_horizontal(self, content: str, sheet_name: str) -> str:
+        """
+        Analyze content using LLM with horizontal (row-wise) focus.
+
+        Args:
+            content: The content to analyze
+            sheet_name: Name of the sheet for cache key
+
+        Returns:
+            Analyzed text or empty string if LLM service is not available
+        """
+        if not self.llm_service:
+            logger.warning(
+                "LLM service not available, skipping analysis"
+            )
+            return ""
+
+        # Create cache key based on entire sheet content and background info
+        background_info = self.background_info or "No background context"
+        cache_content = f"{content}\nBackground: {background_info}"
+        content_hash = self._get_content_hash(cache_content)
+        cache_key = f"sheet_horizontal_{sheet_name}_{content_hash}"
+
+        # Check if analysis exists in cache
+        if cache_key in self.cache:
+            cached_analysis = self.cache[cache_key].get('processed_text', '')
+            if cached_analysis:
+                logger.debug(
+                    f"Using cached horizontal analysis for {sheet_name}"
+                )
+                return cached_analysis
+
+        try:
+            # Create horizontal analysis prompt with background info
+            background_info = (
+                self.background_info or "No specific background context provided."
+            )
+            analysis_prompt = self.custom_prompt or SHEET_ANALYSIS_PROMPT.format(
+                background_info=background_info
+            )
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": analysis_prompt
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+
+            analysis = self.llm_service.chat(messages)
+            analysis = analysis.strip()
+
+            # Cache the result
+            self.cache[cache_key] = {
+                'summary': '',  # No separate summary for analysis mode
+                'content_hash': content_hash,
+                'sheet_name': sheet_name,
+                'original_content': content,
+                'processed_text': analysis,
+                'background_info': background_info,
+                'mode': 'sheet_horizontal'
+            }
+            self._save_cache()
+
+            logger.debug(
+                f"Generated and cached horizontal analysis for {sheet_name}"
+            )
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Error generating horizontal analysis: {str(e)}")
+            return ""
+
+    def _analyze_content_vertical(self, content: str, sheet_name: str) -> str:
+        """
+        Analyze content using LLM with vertical (column-wise) focus.
+
+        Args:
+            content: The content to analyze
+            sheet_name: Name of the sheet for cache key
+
+        Returns:
+            Analyzed text or empty string if LLM service is not available
+        """
+        if not self.llm_service:
+            logger.warning(
+                "LLM service not available, skipping analysis"
+            )
+            return ""
+
+        # Create cache key based on entire sheet content and background info
+        background_info = self.background_info or "No background context"
+        cache_content = f"{content}\nBackground: {background_info}"
+        content_hash = self._get_content_hash(cache_content)
+        cache_key = f"sheet_vertical_{sheet_name}_{content_hash}"
+
+        # Check if analysis exists in cache
+        if cache_key in self.cache:
+            cached_analysis = self.cache[cache_key].get('processed_text', '')
+            if cached_analysis:
+                logger.debug(
+                    f"Using cached vertical analysis for {sheet_name}"
+                )
+                return cached_analysis
+
+        try:
+            # Create vertical analysis prompt with background info
+            background_info = (
+                self.background_info or "No specific background context provided."
+            )
+            analysis_prompt = self.custom_prompt or SHEET_ANALYSIS_PROMPT.format(
+                background_info=background_info
+            )
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": analysis_prompt
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+
+            analysis = self.llm_service.chat(messages)
+            analysis = analysis.strip()
+
+            # Cache the result
+            self.cache[cache_key] = {
+                'summary': '',  # No separate summary for analysis mode
+                'content_hash': content_hash,
+                'sheet_name': sheet_name,
+                'original_content': content,
+                'processed_text': analysis,
+                'background_info': background_info,
+                'mode': 'sheet_vertical'
+            }
+            self._save_cache()
+
+            logger.debug(
+                f"Generated and cached vertical analysis for {sheet_name}"
+            )
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Error generating vertical analysis: {str(e)}")
+            return ""
+
     def process_all_sheets(self, mode: str = 'horizontal') -> List[tuple]:
         """
         Process all sheets in the Excel file.
 
         Args:
-            mode: Processing mode ('horizontal' or 'vertical')
+            mode: Processing mode ('horizontal', 'vertical', 'sheet-horizontal',
+                  or 'sheet-vertical')
 
         Returns:
             List of tuples containing (sheet_name, content, output_path)
@@ -541,8 +971,15 @@ class ExcelProcessor:
             # Process sheet based on mode
             if mode == 'horizontal':
                 content = self.process_sheet_horizontal(sheet_name)
-            else:  # vertical mode
+            elif mode == 'vertical':
                 content = self.process_sheet_vertical(sheet_name)
+            elif mode == 'sheet-horizontal':
+                content = self.process_sheet_horizontal_analysis(sheet_name)
+            elif mode == 'sheet-vertical':
+                content = self.process_sheet_vertical_analysis(sheet_name)
+            else:
+                logger.warning(f"Unknown mode '{mode}', using horizontal mode")
+                content = self.process_sheet_horizontal(sheet_name)
 
             # Generate output filename using sheet name
             base_name = self.excel_path.stem
@@ -625,7 +1062,9 @@ class ExcelProcessor:
                 metadata={
                     "title": f"Excel Sheet: {sheet_name}",
                     "background": f"Content from Excel file: {self.excel_path.name}",
-                    "document_summary": f"Processed content from sheet '{sheet_name}'"
+                    "document_summary": (
+                        f"Processed content from sheet '{sheet_name}'"
+                    )
                 }
             )
 

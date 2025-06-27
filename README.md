@@ -73,6 +73,7 @@ vuepress2dify --vuepress-path /path/to/vuepress/docs --debug
 - `--cache-details`: Optional. Show detailed cache information including original content
 - `--clear-cache`: Optional. Clear all cached summaries before processing
 - `--prompt`: Optional. Custom prompt for content summarization. This prompt will be used to guide the AI in generating summaries. If not provided, the default prompt will be used. Example: "You are a technical documentation expert. Please generate a concise summary for the following content, focusing on technical points and solutions."
+- `--background-info`: Optional. Background information to provide context for analysis. This is particularly useful for sheet-horizontal and sheet-vertical modes to provide domain-specific context. Example: "This data represents customer support tickets with technical issues and their resolution status."
 
 ### Processing Details
 
@@ -107,6 +108,8 @@ This ensures that unchanged documents are not re-uploaded, saving resources and 
 4. Knowledge base upload requires valid API credentials
 5. Cache is automatically cleaned up to remove outdated files
 6. Supports nested documentation structures
+7. Token limits: Traditional modes use 200 tokens, sheet analysis modes use 80000 tokens (GPT-4o-mini capability)
+7. Sheet analysis modes provide comprehensive analysis with full token utilization
 
 ### Error Handling
 
@@ -132,6 +135,12 @@ python kb_builder/cmd/excel2dify.py your_file.xlsx --prompt "You are a technical
 # Upload to Dify knowledge base
 python kb_builder/cmd/excel2dify.py your_file.xlsx --kb-url https://api.dify.ai/v1 --kb-name "excel_data"
 
+# Sheet-horizontal mode with background context
+python kb_builder/cmd/excel2dify.py your_file.xlsx --mode sheet-horizontal --background-info "This data represents customer support tickets with technical issues and their resolution status."
+
+# Sheet-vertical mode with background context
+python kb_builder/cmd/excel2dify.py your_file.xlsx --mode sheet-vertical --background-info "This data shows employee performance metrics across different departments."
+
 # Complete example with all features
 python kb_builder/cmd/excel2dify.py data.xlsx --mode horizontal --keep-fields "Problem,Solution" --prompt "You are a support specialist. Please summarize this troubleshooting content." --kb-url https://api.dify.ai/v1 --kb-name "support_data" --debug
 ```
@@ -140,10 +149,13 @@ python kb_builder/cmd/excel2dify.py data.xlsx --mode horizontal --keep-fields "P
 
 - **Horizontal Processing Mode**: First row as headers, each subsequent row becomes a complete paragraph
 - **Vertical Processing Mode**: Each column as a section containing all content from that column
+- **Sheet-Horizontal Analysis Mode**: Row-wise description with background context, focusing on accurate description of each row's content
+- **Sheet-Vertical Analysis Mode**: Column-wise description with background context, focusing on accurate description of each column's content
 - **Multi-Sheet Support**: Each sheet is processed and saved as a separate file with naming format `original_filename-sheet_name.txt`
 - **Field Filtering**: Specify fields to keep in output while all fields participate in summarization
 - **AI Summarization**: Uses large language models to generate precise summaries for each paragraph, improving retrieval accuracy
 - **Custom Prompt Support**: Provide custom prompts for better context-aware summarization
+- **Background Context Support**: Provide domain-specific background information for enhanced analysis
 - **Automatic Text File Generation**
 - **Debug Mode Support** for detailed logging
 
@@ -169,6 +181,12 @@ python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode horizont
 
 # Vertical processing mode
 python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode vertical
+
+# Sheet-horizontal analysis mode (column-wise with background context)
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode sheet-horizontal --background-info "This data represents customer support tickets with technical issues and their resolution status."
+
+# Sheet-vertical analysis mode (row-wise with background context)
+python kb_builder/cmd/excel2dify.py path/to/your/excel_file.xlsx --mode sheet-vertical --background-info "This data shows employee performance metrics across different departments."
 ```
 
 #### Specify Fields to Keep
@@ -262,6 +280,60 @@ Jane
 ## Profession
 Engineer
 Designer
+```
+
+#### Sheet-Horizontal Analysis Mode
+
+- Provides entire sheet content to LLM with focus on row descriptions
+- Incorporates background context for better understanding
+- Generates one line per row with clear, descriptive text
+- Emphasizes accurate description of each row's content
+- Uses specialized prompt for horizontal (row-wise) description
+- Background information enhances understanding of data context
+
+**Example Excel:**
+```
+TicketID    Issue        Priority    Status      Resolution
+T001        Login Error  High        Resolved    Password Reset
+T002        Slow Load    Medium      Open        Under Investigation
+T003        Data Loss    Critical    Resolved    Backup Restore
+```
+
+**Background Info**: "This data represents customer support tickets with technical issues and their resolution status."
+
+**Output Text:**
+```
+Ticket T001 has a high priority login error that was resolved through password reset
+Ticket T002 has a medium priority slow load issue that is currently open and under investigation
+Ticket T003 has a critical data loss issue that was resolved using backup restoration
+```
+
+#### Sheet-Vertical Analysis Mode
+
+- Provides entire sheet content to LLM with focus on column descriptions
+- Incorporates background context for better understanding
+- Generates one line per column with clear, descriptive text
+- Emphasizes accurate description of each column's content
+- Uses specialized prompt for vertical (column-wise) description
+- Background information enhances understanding of data context
+
+**Example Excel:**
+```
+Department    Q1_Sales    Q2_Sales    Q3_Sales    Q4_Sales
+Sales         100000     120000     110000     130000
+Marketing     80000      90000      95000      100000
+Engineering   60000      70000      75000      80000
+```
+
+**Background Info**: "This data shows quarterly sales performance across different departments."
+
+**Output Text:**
+```
+Department column contains the names of different company departments
+Q1_Sales column shows first quarter sales figures for each department
+Q2_Sales column shows second quarter sales figures for each department
+Q3_Sales column shows third quarter sales figures for each department
+Q4_Sales column shows fourth quarter sales figures for each department
 ```
 
 ### Field Filtering Functionality
@@ -380,6 +452,8 @@ python kb_builder/cmd/excel2dify.py excel_file.xlsx --debug
 8. Cache file location: Same directory as Excel file, named `{excel_filename}_metadata.json`
 9. Cache behavior: Loads existing cache for hits during processing, clears after completion
 10. Content preservation: Both original Excel content and processed text are saved
+11. Token limits: Traditional modes use 200 tokens, sheet analysis modes use 80000 tokens (GPT-4o-mini capability)
+12. Sheet analysis modes provide comprehensive analysis with full token utilization
 
 ### Error Handling
 
@@ -399,7 +473,7 @@ python kb_builder/cmd/excel2dify.py excel_file.xlsx --debug
 ### Command Line Arguments
 
 - `excel_path`: Required. Path to the Excel file to process
-- `--mode`: Optional. Processing mode ('horizontal' or 'vertical'). Default: horizontal
+- `--mode`: Optional. Processing mode ('horizontal', 'vertical', 'sheet-horizontal', or 'sheet-vertical'). Default: horizontal
 - `--keep-fields`: Optional. Comma-separated list of field names to keep in output
 - `--output`: Optional. Output text file path (auto-generated if not provided)
 - `--kb-url`: Optional. Knowledge base API endpoint URL
@@ -409,6 +483,7 @@ python kb_builder/cmd/excel2dify.py excel_file.xlsx --debug
 - `--cache-details`: Optional. Show detailed cache information including original content
 - `--clear-cache`: Optional. Clear all cached summaries before processing
 - `--prompt`: Optional. Custom prompt for content summarization. This prompt will be used to guide the AI in generating summaries. If not provided, the default prompt will be used. Example: "You are a technical documentation expert. Please generate a concise summary for the following content, focusing on technical points and solutions."
+- `--background-info`: Optional. Background information to provide context for analysis. This is particularly useful for sheet-horizontal and sheet-vertical modes to provide domain-specific context. Example: "This data represents customer support tickets with technical issues and their resolution status."
 
 ## Usage Guidelines and Restrictions
 
